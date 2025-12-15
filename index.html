@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>⚡️究极·电子·炸裂·鬼畜机⚡️</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Imported ZCOOL QingKe HuangYou for that blocky, poster design feel */
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&family=ZCOOL+QingKe+HuangYou&display=swap');
+      
+      body {
+        font-family: 'Noto Sans SC', sans-serif;
+        background-color: #000;
+        background-image: 
+          radial-gradient(#222 15%, transparent 16%),
+          radial-gradient(#222 15%, transparent 16%);
+        background-size: 20px 20px;
+        background-position: 0 0, 10px 10px;
+        color: #fff;
+        overflow-x: hidden;
+      }
+
+      h1, h2, h3, .font-meme {
+        font-family: 'ZCOOL QingKe HuangYou', cursive, sans-serif;
+        letter-spacing: 1px;
+      }
+
+      /* Custom scrollbar */
+      ::-webkit-scrollbar {
+        width: 12px;
+        background: #000;
+        border-left: 2px solid #fff;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #ff00ff;
+        border: 2px solid #000;
+        box-shadow: 4px 4px 0px #00ff00;
+      }
+
+      /* Animations */
+      @keyframes float {
+        0% { transform: translateY(0px) rotate(0deg); }
+        50% { transform: translateY(-20px) rotate(5deg); }
+        100% { transform: translateY(0px) rotate(0deg); }
+      }
+      .animate-float {
+        animation: float 6s ease-in-out infinite;
+      }
+
+      @keyframes shake-hard {
+        0% { transform: translate(1px, 1px) rotate(0deg); }
+        10% { transform: translate(-1px, -2px) rotate(-1deg); }
+        20% { transform: translate(-3px, 0px) rotate(1deg); }
+        30% { transform: translate(3px, 2px) rotate(0deg); }
+        40% { transform: translate(1px, -1px) rotate(1deg); }
+        50% { transform: translate(-1px, 2px) rotate(-1deg); }
+        60% { transform: translate(-3px, 1px) rotate(0deg); }
+        70% { transform: translate(3px, 1px) rotate(-1deg); }
+        80% { transform: translate(-1px, -1px) rotate(1deg); }
+        90% { transform: translate(1px, 2px) rotate(0deg); }
+        100% { transform: translate(1px, -2px) rotate(-1deg); }
+      }
+      .hover-shake:hover {
+        animation: shake-hard 0.5s;
+        animation-iteration-count: infinite;
+      }
+
+      @keyframes rainbow-bg {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      .bg-rainbow {
+        background: linear-gradient(270deg, #ff0000, #ff00ff, #0000ff, #00ff00, #ffff00, #ff0000);
+        background-size: 400% 400%;
+        animation: rainbow-bg 3s ease infinite;
+      }
+
+      @keyframes marquee {
+        0% { transform: translateX(100%); }
+        100% { transform: translateX(-100%); }
+      }
+      .animate-marquee {
+        white-space: nowrap;
+        animation: marquee 15s linear infinite;
+      }
+
+      /* Brutalist Shadow Utility */
+      .shadow-hard {
+        box-shadow: 6px 6px 0px 0px #000000;
+      }
+      .shadow-hard-white {
+        box-shadow: 6px 6px 0px 0px #ffffff;
+      }
+      .shadow-hard-active:active {
+        transform: translate(4px, 4px);
+        box-shadow: 2px 2px 0px 0px #000000;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

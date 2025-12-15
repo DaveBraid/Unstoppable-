@@ -1,0 +1,5 @@
+{
+  "name": "赛博鬼畜制作器",
+  "description": "前端纯本地处理的恶搞视频制作工具，支持炸麦、变速、变调和赛博朋克风格界面。",
+  "requestFramePermissions": []
+}
