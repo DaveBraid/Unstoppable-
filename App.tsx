@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Play, Pause, Download, Zap, Radio, Trash2, ShieldCheck, Bomb, Skull, Music } from 'lucide-react';
-import { makeDistortionCurve } from './utils/audio';
+import { Upload, Play, Pause, Download, Zap, Radio, Trash2, ShieldCheck, Bomb, Skull, Music, Video, FileAudio } from 'lucide-react';
+import { makeDistortionCurve, renderOfflineAudio } from './utils/audio';
 import { CyberButton } from './components/CyberButton';
 import { RangeSlider } from './components/RangeSlider';
 
@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [preservePitch, setPreservePitch] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0); // 0-100 for export progress
 
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -59,6 +60,7 @@ const App: React.FC = () => {
       setDistortion(0);
       setIsPlaying(false);
       setCurrentTime(0);
+      setProgress(0);
   };
 
   const clearVideo = () => {
@@ -100,12 +102,14 @@ const App: React.FC = () => {
         dist.disconnect();
         master.disconnect();
 
+        // Chain connection
         source.connect(preGain);
         preGain.connect(dist);
         dist.connect(master);
-        master.connect(dest);
-        master.connect(streamDest); 
-
+        master.connect(dest); // Connect to speakers
+        master.connect(streamDest); // Connect to recorder stream
+        
+        // Initial values
         dist.curve = makeDistortionCurve(0);
         dist.oversample = '4x';
         preGain.gain.value = 1.0;
@@ -155,7 +159,16 @@ const App: React.FC = () => {
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+      const current = videoRef.current.currentTime;
+      setCurrentTime(current);
+      
+      // Calculate export progress if recording
+      if (isRecording && duration > 0) {
+        // If speed is 2x, duration is same but we might reach end faster. 
+        // Progress should be based on % of video played.
+        const pct = Math.min(100, Math.round((current / duration) * 100));
+        setProgress(pct);
+      }
     }
   };
 
@@ -174,24 +187,57 @@ const App: React.FC = () => {
   };
 
   // --- Export Logic ---
-  const startProcessing = () => {
+  
+  // 1. Audio Export (Instant)
+  const exportAudio = async () => {
+      if (!videoFile) return;
+      setIsProcessing(true);
+      
+      try {
+          const wavBlob = await renderOfflineAudio(videoFile, distortion, speed);
+          const url = URL.createObjectURL(wavBlob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = `guichu_audio_${Date.now()}.wav`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+      } catch (err) {
+          console.error("Audio export failed", err);
+          alert("音频导出失败，请检查文件格式");
+      } finally {
+          setIsProcessing(false);
+      }
+  };
+
+  // 2. Video Export (MP4 via MediaRecorder)
+  const exportVideo = () => {
     if (!videoRef.current || !streamDestRef.current) return;
     
     setIsProcessing(true);
     setIsRecording(true);
+    setProgress(0);
     recordedChunksRef.current = [];
+
+    // Mute speakers during recording so user doesn't hear double or get annoyed
+    // We disconnect master -> destination (speakers) but keep master -> streamDest (recorder)
+    if (masterGainRef.current && audioContextRef.current) {
+        masterGainRef.current.disconnect(audioContextRef.current.destination);
+    }
 
     const videoEl = videoRef.current as any;
     let videoStream: MediaStream;
     
+    // Capture stream from video element
+    // Note: We need to ensure we capture at a decent frame rate
     if (videoEl.captureStream) {
-        videoStream = videoEl.captureStream();
+        videoStream = videoEl.captureStream(30);
     } else if (videoEl.mozCaptureStream) {
-        videoStream = videoEl.mozCaptureStream();
+        videoStream = videoEl.mozCaptureStream(30);
     } else {
         alert("浏览器不支持捕捉流！");
-        setIsProcessing(false);
-        setIsRecording(false);
+        cleanupRecording();
         return;
     }
 
@@ -201,10 +247,35 @@ const App: React.FC = () => {
         ...audioStream.getAudioTracks()
     ]);
 
-    const options = { mimeType: 'video/webm; codecs=vp9' };
+    // Priority Detection for MP4
+    const mimeTypes = [
+        'video/mp4; codecs=avc1,mp4a.40.2',
+        'video/mp4',
+        'video/webm; codecs=vp9,opus',
+        'video/webm'
+    ];
+    
+    let selectedMimeType = '';
+    for (const type of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(type)) {
+            selectedMimeType = type;
+            break;
+        }
+    }
+
+    if (!selectedMimeType) {
+        alert("您的浏览器不支持视频录制");
+        cleanupRecording();
+        return;
+    }
+
+    console.log(`Using mimeType: ${selectedMimeType}`);
+    const options = { mimeType: selectedMimeType, videoBitsPerSecond: 5000000 }; // 5Mbps
+
     try {
         mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
     } catch (e) {
+        console.error(e);
         mediaRecorderRef.current = new MediaRecorder(combinedStream);
     }
 
@@ -215,35 +286,56 @@ const App: React.FC = () => {
     };
 
     mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        // Determine extension based on mimeType
+        const ext = selectedMimeType.includes('mp4') ? 'mp4' : 'webm';
+        const blob = new Blob(recordedChunksRef.current, { type: selectedMimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         document.body.appendChild(a);
         a.style.display = 'none';
         a.href = url;
-        a.download = `guichu_remix_${Date.now()}.webm`;
+        a.download = `guichu_remix_${Date.now()}.${ext}`;
         a.click();
         window.URL.revokeObjectURL(url);
-        setIsProcessing(false);
-        setIsRecording(false);
         
-        videoRef.current!.loop = true; 
-        if(videoRef.current) videoRef.current.pause();
-        setIsPlaying(false);
+        cleanupRecording();
     };
 
+    // Prepare Playback
     videoRef.current.currentTime = 0; 
     videoRef.current.loop = false; 
-    videoRef.current.play();
-    setIsPlaying(true);
+    
+    // Start Recording then Play
     mediaRecorderRef.current.start();
+    videoRef.current.play().catch(e => {
+        console.error("Playback failed", e);
+        cleanupRecording();
+    });
 
+    // Auto Stop
     videoRef.current.onended = () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop();
         }
-        videoRef.current!.onended = null;
     };
+  };
+
+  const cleanupRecording = () => {
+      setIsProcessing(false);
+      setIsRecording(false);
+      setProgress(0);
+      
+      // Reconnect speakers
+      if (masterGainRef.current && audioContextRef.current) {
+          masterGainRef.current.connect(audioContextRef.current.destination);
+      }
+
+      if(videoRef.current) {
+          videoRef.current.loop = true;
+          videoRef.current.pause();
+      }
+      setIsPlaying(false);
+      videoRef.current!.onended = null;
   };
 
   const formatTime = (time: number) => {
@@ -259,6 +351,40 @@ const App: React.FC = () => {
       <div className="fixed top-20 left-10 text-6xl animate-bounce opacity-20 pointer-events-none rotate-12 z-0">🤪</div>
       <div className="fixed bottom-40 right-20 text-8xl animate-spin opacity-20 pointer-events-none z-0">💿</div>
       <div className="fixed top-1/2 left-1/2 text-9xl -translate-x-1/2 -translate-y-1/2 opacity-5 pointer-events-none font-black z-0">鬼畜</div>
+
+      {/* --- Processing Overlay (The "Rendering" Screen) --- */}
+      {isProcessing && (
+        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center cursor-wait backdrop-blur-md">
+            <div className="w-full max-w-2xl px-8 text-center">
+                <div className="relative mb-8">
+                     <Bomb className="w-32 h-32 text-[#ff00ff] animate-bounce mx-auto" />
+                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 bg-[#ff00ff] blur-3xl opacity-30 rounded-full animate-pulse"></div>
+                </div>
+                
+                <h2 className="text-4xl md:text-6xl font-black text-white italic mb-4 animate-pulse">
+                    {isRecording ? "正在合成视频..." : "正在渲染音频..."}
+                </h2>
+                
+                {isRecording && (
+                    <div className="w-full bg-gray-800 border-4 border-white h-12 relative overflow-hidden shadow-[0_0_20px_#ff00ff]">
+                        <div 
+                            className="h-full bg-[#00ff00] transition-all duration-100 ease-linear flex items-center justify-center overflow-hidden"
+                            style={{ width: `${progress}%` }}
+                        >
+                            <div className="w-full h-full opacity-20 bg-[url('https://www.transparenttextures.com/patterns/diagonal-stripes.png')] animate-marquee"></div>
+                        </div>
+                        <span className="absolute inset-0 flex items-center justify-center font-black text-xl text-white mix-blend-difference">
+                            {progress}%
+                        </span>
+                    </div>
+                )}
+                
+                <p className="mt-6 text-[#ffff00] font-mono font-bold text-lg bg-black inline-block px-4 py-2 border-2 border-[#ffff00] transform rotate-1">
+                    {isRecording ? "⚠️ 请勿切换窗口，等待播放结束" : "⚡️ 极速渲染中..."}
+                </p>
+            </div>
+        </div>
+      )}
 
       {/* --- Marquee Header --- */}
       <div className="bg-[#ffff00] border-y-4 border-black py-2 overflow-hidden sticky top-0 z-50 shadow-hard">
@@ -347,17 +473,6 @@ const App: React.FC = () => {
                     {!isPlaying && !isProcessing && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/50 hover:bg-transparent transition-colors cursor-pointer" onClick={togglePlay}>
                             <Play className="w-24 h-24 text-white drop-shadow-[5px_5px_0px_#000]" fill="currentColor" />
-                        </div>
-                    )}
-                    
-                    {/* Processing Overlay */}
-                    {isProcessing && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#ff00ff]/90 z-20">
-                            <Bomb className="w-20 h-20 text-black animate-bounce mb-4" />
-                            <p className="text-white font-black text-3xl animate-pulse bg-black px-4 py-2 border-2 border-white">正在注入灵魂...</p>
-                            <div className="mt-4 w-1/2 h-4 bg-black border-2 border-white">
-                                <div className="h-full bg-[#ffff00] animate-marquee" style={{width: '100%'}}></div>
-                            </div>
                         </div>
                     )}
                 </div>
@@ -460,11 +575,16 @@ const App: React.FC = () => {
 
                 {/* Actions */}
                 <div className="flex flex-col gap-4">
-                  <CyberButton onClick={startProcessing} disabled={isProcessing} variant="primary" className="text-xl">
-                    <Download className="w-6 h-6" />
-                    <span>合成并下载视频</span>
+                  <CyberButton onClick={exportVideo} disabled={isProcessing} variant="primary" className="text-xl">
+                    <Video className="w-6 h-6" />
+                    <span>合成视频 (MP4)</span>
                   </CyberButton>
                   
+                   <CyberButton onClick={exportAudio} disabled={isProcessing} variant="success" className="text-lg">
+                    <FileAudio className="w-5 h-5" />
+                    <span>仅导出音频 (WAV)</span>
+                  </CyberButton>
+
                   <CyberButton variant="danger" onClick={clearVideo} disabled={isProcessing} className="text-sm py-2">
                     <Trash2 className="w-4 h-4" />
                     <span>这就不要了？(重置)</span>
@@ -478,7 +598,8 @@ const App: React.FC = () => {
                  <ul className="list-disc list-inside font-bold space-y-1 text-sm">
                      <li>先把倍速拉满，再把炸麦拉满</li>
                      <li>点击“变调”获得花栗鼠或恶魔音效</li>
-                     <li>点击下载，发给你的怨种朋友</li>
+                     <li>"合成视频"会自动播放一遍进行录制(已静音)</li>
+                     <li>"仅导出音频"可秒速生成 WAV 文件</li>
                  </ul>
               </div>
 
